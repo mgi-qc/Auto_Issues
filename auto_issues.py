@@ -3,11 +3,13 @@ __author__ = "Thomas Antonacci"
 
 """
 This script relies on the jiraq bash script and ~awollam/aw/jiraq_parser.py woids.stats.txt
-Meant to be run on gsub
+Meant to be run on personal gsub_alt(uses registry.gsc.wustl.edu/antonacci.t.j/genome_perl_environment:latest)
 """
 
+
+
 #TODO:
-#Write column check for new headers from jiraq
+#
 
 import smartsheet
 import csv
@@ -112,6 +114,22 @@ for sheet in get_sheet_list(qc_space.id, 'w'):
 
 current_sheet = get_object(current_sheet.id, 's')
 
+"""
+Get Active WO's for QC Active issues
+"""
+
+for sheet in get_sheet_list(qc_space.id, 'w'):
+    if 'QC Active Issues' in sheet.name:
+        qc_active_sheet = sheet
+
+qc_active_sheet = get_object(qc_active_sheet.id, 's')
+
+active_columns = qc_active_sheet.columns
+active_columns_id = {}
+
+for col in active_columns:
+    active_columns_id[col.title] = col.id
+
 ss_columns = current_sheet.columns
 
 ss_columns_id = {}
@@ -130,16 +148,40 @@ while True:
     else:
         break
 
+
+active_wos = []
+for row in qc_active_sheet.rows[7:]:
+    resolved = False
+    for cell in row.cells:
+        if cell.column_id == active_columns_id['Health'] and cell.value == 'Blue':
+            resolved = True
+
+    for cell in row.cells:
+        if cell.column_id == active_columns_id['Work Order ID'] and not resolved:
+            active_wos.append(cell.value)
+        elif str(cell.value).replace('.0','') in woids:
+            print('{} found resolved in QC Active Issues.'.format(str(cell.value).replace('.0','')))
+
+for woid in active_wos:
+    active_wos[active_wos.index(woid)] = str(woid).replace('.0','')
+
+for woid in woids:
+    if woid not in active_wos:
+        print('{} found in Jira but not Smartsheet.'.format(woid))
+
+
+
+
 with open('woids','w') as wof:
     for wo in woids:
         wof.write(wo + '\n')
 print('-----------------')
 print('Running jiraq...')
-print('-----------------')
 subprocess.run(['/bin/bash','jiraq'])
+print('-----------------')
+
 
 print('Running Parser...')
-print('-----------------')
 subprocess.run(['python3.5','jiraq_parser.py', 'woids.stats.txt'])
 
 wo_delete = {}
@@ -157,7 +199,7 @@ with open('issue.status.{}.tsv'.format(mm_dd_yy),'r') as issues_file:
     header_check = True
     for head in header:
         if head not in ss_columns_id.keys():
-            exit('{} column not found in Smartsheet\nPlease edit the sheet reference in the QC Active Sheet'.format(head))
+            print('{} column not found in Smartsheet\nPlease edit the sheet reference in the QC Active Sheet'.format(head))
             new_column = smartsheet.smartsheet.models.Column({'title': head,
                                                               'type': 'TEXT_NUMBER'})
             #Add column to smartsheet
@@ -196,7 +238,8 @@ with open('issue.status.{}.tsv'.format(mm_dd_yy),'r') as issues_file:
         else:
             adding_rows.append(smart_sheet_client.models.Row())
             new_row = adding_rows[add_ind]
-            new_row.to_bottom = True
+            #Must be added above the last row(below the 2nd last) in order for the cross sheet reference to work
+            new_row.sibling_id = current_sheet.rows[-2].id
 
         #update/add row with info from line
         for col in ss_columns_id:
@@ -218,6 +261,8 @@ for key in wo_delete.keys():
 #Delete Rows
 if len(delete_list) != 0:
     smart_sheet_client.Sheets.delete_rows(current_sheet.id, delete_list)
+print('-----------------')
+
 
 print('Updating Smartsheet...')
 print('-----------------')
