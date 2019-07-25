@@ -6,6 +6,8 @@ This script will now be designed to update and add work orders to/in smartsheet 
 
 This script relies on the jiraq bash script and ~awollam/aw/jiraq_parser.py woids.stats.txt
 Meant to be run on personal gsub_alt(uses registry.gsc.wustl.edu/antonacci.t.j/genome_perl_environment:latest)
+
+TODO: Notation and clean up
 """
 
 
@@ -26,8 +28,10 @@ if API_KEY is None:
 smart_sheet_client = smartsheet.Smartsheet(API_KEY)
 smart_sheet_client.errors_as_exceptions(True)
 
+
 run_from = os.getcwd()
 os.chdir('/gscmnt/gc2783/qc/GMSworkorders')
+
 
 """
 Smartsheet tools
@@ -138,10 +142,12 @@ Input sheet from Jira
 jira_sheet = []
 print('Paste Jira Sheet ("return c return" to continue): ')
 
+
 jira_temp = 'jira_temp.tsv'
 with open(jira_temp, 'w') as js:
     while True:
         sheet_in = input()
+
 
         if sheet_in != 'c':
             js.write(sheet_in + '\n')
@@ -153,8 +159,7 @@ with open(jira_temp, 'r') as jt, open(jira_temp + '_1', 'w') as jt1:
     jira_read = csv.reader(jt, delimiter = '\t')
     temp_writer = csv.writer(jt1, delimiter = '\t')
     data = [r for r in jira_read]
-
-
+    
     dup_found = False
     i = 0
     j = 0
@@ -165,13 +170,15 @@ with open(jira_temp, 'r') as jt, open(jira_temp + '_1', 'w') as jt1:
             data[0][i] = title + '_{}'.format(j)
             j +=1
         i += 1
-
+        
     for rw in data:
         temp_writer.writerow(rw)
-
+      
 os.rename(jira_temp + '_1', jira_temp)
 
+
 #Update Smartsheet QC Active Issues with new work orders
+
 row_num = len(qc_active_sheet.rows) + 1
 woids = []
 with open(jira_temp, 'r') as jt:
@@ -180,6 +187,7 @@ with open(jira_temp, 'r') as jt:
     for line in jira_read:
         woids.append(line['Custom field (Work Order ID)'])
     jt.seek(1)
+
 
     #check ss woids and jira woids
     active_wos = []
@@ -207,6 +215,7 @@ with open(jira_temp, 'r') as jt:
 
                     new_row = smartsheet.smartsheet.models.Row()
 
+
                     #Jira information
                     new_row.cells.append({'column_id': active_columns_id['Work Order ID'], 'value': int(line['Custom field (Work Order ID)'])})
                     new_row.cells.append({'column_id': active_columns_id['Component/s'],'value': line['Component/s']})
@@ -232,6 +241,7 @@ with open(jira_temp, 'r') as jt:
 
                     new_row.cells.append({'column_id': active_columns_id['Confluence Page WOID'], 'value': conf_url, 'hyperlink': {'url' : conf_url}})
                     new_row.cells.append({'column_id': active_columns_id['JIRA Issue Link'], 'value': jira_url, 'hyperlink': {'url': jira_url}})
+
 
                     #Blanks
                     new_row.cells.append({'column_id': active_columns_id['QC Queried Date'], 'value': ''})
