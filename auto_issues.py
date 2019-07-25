@@ -2,8 +2,12 @@ __author__ = "Thomas Antonacci"
 
 
 """
+This script will now be designed to update and add work orders to/in smartsheet from jira csv/tsv
+
 This script relies on the jiraq bash script and ~awollam/aw/jiraq_parser.py woids.stats.txt
 Meant to be run on personal gsub_alt(uses registry.gsc.wustl.edu/antonacci.t.j/genome_perl_environment:latest)
+
+TODO: Notation and clean up
 """
 
 
@@ -123,7 +127,7 @@ Get Active WO's for QC Active issues
 """
 
 for sheet in get_sheet_list(qc_space.id, 'w'):
-    if 'QC Active Issues' in sheet.name:
+    if 'QC Active Issues' == sheet.name:
         qc_active_sheet = sheet
 
 qc_active_sheet = get_object(qc_active_sheet.id, 's')
@@ -144,37 +148,159 @@ for col in ss_columns:
 """
 Input woids from Jira
 """
+jira_sheet = []
+print('Jira Sheet (Enter "return c return" to continue): ')
+
+jira_temp = 'jira_temp.tsv'
+with open(jira_temp, 'w') as js:
+    while True:
+        sheet_in = input()
+
+        if sheet_in != 'c':
+            js.write(sheet_in + '\n')
+        else:
+            break
+
+#eliminate dup linked issues column
+with open(jira_temp, 'r') as jt, open(jira_temp + '_1', 'w') as jt1:
+    jira_read = csv.reader(jt, delimiter = '\t')
+    temp_writer = csv.writer(jt1, delimiter = '\t')
+    data = [r for r in jira_read]
+
+
+    dup_found = False
+    i = 0
+    j = 0
+    for title in data[0]:
+        if title == 'Outward issue link (Depends)' and not dup_found:
+            dup_found = True
+        elif title == 'Outward issue link (Depends)' and dup_found:
+            data[0][i] = title + '_{}'.format(j)
+            j +=1
+        i += 1
+
+    for rw in data:
+        temp_writer.writerow(rw)
+
+
+
+os.rename(jira_temp + '_1', jira_temp)
+
+
+row_num = len(qc_active_sheet.rows) + 1
 woids = []
-print('Woids (Enter "return c return" to continue): ')
-while True:
-    woid_in = input()
+with open(jira_temp, 'r') as jt:
+    jira_read = csv.DictReader(jt, delimiter = '\t')
+    header = jira_read.fieldnames
+    for line in jira_read:
+        woids.append(line['Custom field (Work Order ID)'])
+    jt.seek(1)
 
-    if woid_in != 'c':
-        woids.append(woid_in)
-    else:
-        break
+    """
+    Need to write lines to temp file(tsv)
+    parse out woids
+    use woids check written
+    fill out ss row if needed
+    run build status query as usual
 
-#check ss woids and jira woids
-active_wos = []
-for row in qc_active_sheet.rows[7:]:
-    resolved = False
-    for cell in row.cells:
-        if cell.column_id == active_columns_id['Health'] and cell.value == 'Blue':
-            resolved = True
+    Delete temp at end
+    """
 
-    for cell in row.cells:
-        if cell.column_id == active_columns_id['Work Order ID'] and not resolved:
-            active_wos.append(cell.value)
-        elif str(cell.value).replace('.0','') in woids and resolved:
-            print('{} found resolved in QC Active Issues.'.format(str(cell.value).replace('.0','')))
+    #check ss woids and jira woids
+    active_wos = []
+    for row in qc_active_sheet.rows[7:]:
+        resolved = False
+        for cell in row.cells:
+            if cell.column_id == active_columns_id['Health'] and cell.value == 'Blue':
+                resolved = True
 
-for woid in active_wos:
-    active_wos[active_wos.index(woid)] = str(woid).replace('.0','')
+        for cell in row.cells:
+            if cell.column_id == active_columns_id['Work Order ID'] and not resolved:
+                active_wos.append(cell.value)
+            elif str(cell.value).replace('.0','') in woids and resolved:
+                print('{} found resolved in QC Active Issues.'.format(str(cell.value).replace('.0','')))
 
-for woid in woids:
-    if woid not in active_wos:
-        print('{} found in Jira but not Smartsheet.'.format(woid))
+    for woid in active_wos:
+        active_wos[active_wos.index(woid)] = str(woid).replace('.0','')
 
+    for woid in woids:
+        if woid not in active_wos:
+            print('{} found in Jira but not Smartsheet.'.format(woid))
+            print('Adding row to smartsheet...')
+            for line in jira_read:
+                if line['Custom field (Work Order ID)'] == woid:
+
+                    new_row = smartsheet.smartsheet.models.Row()
+
+                    new_row.cells.append({'column_id': active_columns_id['Work Order ID'], 'value': int(line['Custom field (Work Order ID)'])})
+                    new_row.cells.append({'column_id': active_columns_id['Component/s'],'value': line['Component/s']})
+                    new_row.cells.append({'column_id': active_columns_id['Labels'], 'value': line['Labels']})
+                    new_row.cells.append({'column_id': active_columns_id['Summary'], 'value': line['Summary']})
+                    new_row.cells.append({'column_id': active_columns_id['Issue Key'], 'value': line['Issue key']})
+
+                    #formulas
+                    new_row.cells.append({'column_id': active_columns_id['Health'], 'formula': '=IFERROR(IF([QC Complete?]{num} = 1, "Blue", IF([Total Builds]{num} = [Succeeded Builds]{num}, IF([Total Builds]{num} = 0, "Red", "Green"), IF([Build Failed]{num} > 0, "Red", "Yellow"))), "Red")'.format(num=row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Failed Flag'], 'formula': '=IFERROR(IF([Build Failed]{} > 0, 1, 0), 0)'.format(row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Total Builds'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 2, false)'.format(row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Succeeded Builds'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 3, false)'.format(row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Scheduled'],'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 4, false)'.format(row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Running Builds'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 5, false)'.format(row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Build Needed'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 6, false)'.format(row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Build Failed'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 7, false)'.format(row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Build Requested'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 8, false)'.format(row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Unstartable Builds'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 9, false)'.format(row_num)})
+
+
+                    #Hyperlinks
+                    conf_url = 'https://confluence.ris.wustl.edu/pages/viewpage.action?spaceKey=AD&title=WorkOrder+{}'.format(line['Custom field (Work Order ID)'])
+                    jira_url = 'https://jira.ris.wustl.edu/browse/{}'.format(line['Issue key'])
+
+                    new_row.cells.append({'column_id': active_columns_id['Confluence Page WOID'], 'value': conf_url, 'hyperlink': {'url' : conf_url}})
+                    new_row.cells.append({'column_id': active_columns_id['JIRA Issue Link'], 'value': jira_url, 'hyperlink': {'url': jira_url}})
+
+
+                    #Blanks
+                    new_row.cells.append({'column_id': active_columns_id['QC Queried Date'], 'value': ''})
+                    new_row.cells.append({'column_id': active_columns_id['QC Complete?'], 'value': False})
+                    new_row.cells.append({'column_id': active_columns_id['internal comment about this issue'], 'value': ''})
+                    new_row.cells.append({'column_id': active_columns_id['Analysis Project Status'], 'value': ''})
+                    new_row.cells.append({'column_id': active_columns_id['Weekly Update (PM)'], 'value': ''})
+                    new_row.cells.append({'column_id': active_columns_id['Analyst'], 'value': ''})
+
+                    #Linked Issues
+                    linked_issues = []
+                    for key in line.keys():
+                        if 'Outward issue link (Depends)' in key:
+                            linked_issues.append(line[key])
+                            print(linked_issues)
+
+                    new_row.cells.append({'column_id': active_columns_id['Linked JIRA Parent/Dependent Issues'], 'value': ','.join(linked_issues)})
+                    #add row?
+
+                    smart_sheet_client.Sheets.add_rows(qc_active_sheet.id, [new_row])
+
+            row_num += 1
+            jt.seek(1)
+
+        elif woid in active_wos:
+            #update linked jira issue info
+            up_row = smartsheet.smartsheet.models.Row()
+
+            for row in qc_active_sheet.rows[7:]:
+                if str(row.get_column(active_columns_id['Work Order ID']).value).replace('.0','') == woid:
+                    up_row.id = row.id
+
+            for line in jira_read:
+                if line['Custom field (Work Order ID)'] == woid:
+                    linked_issues = []
+                    for key in line.keys():
+                        if 'Outward issue link (Depends)' in key and line[key] != '':
+                            linked_issues.append(line[key])
+
+                    up_row.cells.append({'column_id': active_columns_id['Linked JIRA Parent/Dependent Issues'], 'value': ','.join(linked_issues)})
+                    smart_sheet_client.Sheets.update_rows(qc_active_sheet.id, [up_row])
+
+            jt.seek(1)
 
 
 #write woids file for jiraq
@@ -291,4 +417,5 @@ smart_sheet_client.Sheets.update_rows(current_sheet.id, updating_rows)
 
 updated_sheet = smart_sheet_client.Sheets.update_sheet(current_sheet.id,smartsheet.models.Sheet({"name" : 'issues.current.{}'.format(mm_dd_yy)}))
 
+os.remove(jira_temp)
 print('debug statment')
