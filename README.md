@@ -7,8 +7,6 @@ First download csv:
 https://jira.ris.wustl.edu/issues/?filter=13180#
 on the terminal, log in to server,
 
-
-(Put gsub_alt somewhere accessible)
 gsub_alt
 
 cd /gscmnt/gc2783/qc/GMSworkorders
