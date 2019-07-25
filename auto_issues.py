@@ -11,23 +11,14 @@ TODO: Notation and clean up
 """
 
 
-
-#TODO:
-#
-
 import smartsheet
 import csv
 import os
 import sys
-import glob
-from datetime import datetime, timedelta
-import argparse
+from datetime import datetime
 import subprocess
-from string import Template
-import time
-import copy
-import operator
-import math
+
+
 
 API_KEY = os.environ.get('SMRT_API')
 
@@ -36,6 +27,11 @@ if API_KEY is None:
 
 smart_sheet_client = smartsheet.Smartsheet(API_KEY)
 smart_sheet_client.errors_as_exceptions(True)
+
+
+run_from = os.getcwd()
+os.chdir('/gscmnt/gc2783/qc/GMSworkorders')
+
 
 """
 Smartsheet tools
@@ -99,45 +95,40 @@ def get_object(object_id, object_tag):
 
     return obj
 
-def get_wo_dir_list():
-    """work in progress"""
-
-    wo_dir_list = glob.glob('[0-9][0-9][0-9][0-9][0-9][0-9][0-9]')
-    return wo_dir_list
-
 """
-MAIN: Generate issues files using jiraq and jiraq.parser
+Get sheets and columns needed from smartsheet
 """
 mm_dd_yy = datetime.now().strftime('%m%d%y')
 
 Wrksps = get_workspace_list()
 
+#Get qc workspace
 for space in Wrksps:
     if space.name == 'QC':
         qc_space = space
 
+#get current issues sheet
 for sheet in get_sheet_list(qc_space.id, 'w'):
     if 'issues.current' in sheet.name:
         current_sheet = sheet
 
 current_sheet = get_object(current_sheet.id, 's')
 
-"""
-Get Active WO's for QC Active issues
-"""
-
+#Get QC Active sheet
 for sheet in get_sheet_list(qc_space.id, 'w'):
     if 'QC Active Issues' == sheet.name:
         qc_active_sheet = sheet
 
 qc_active_sheet = get_object(qc_active_sheet.id, 's')
 
+#Get QC Active columns
 active_columns = qc_active_sheet.columns
 active_columns_id = {}
 
 for col in active_columns:
     active_columns_id[col.title] = col.id
 
+#Get current sheet columns
 ss_columns = current_sheet.columns
 
 ss_columns_id = {}
@@ -146,15 +137,17 @@ for col in ss_columns:
     ss_columns_id[col.title] = col.id
 
 """
-Input woids from Jira
+Input sheet from Jira
 """
 jira_sheet = []
-print('Jira Sheet (Enter "return c return" to continue): ')
+print('Paste Jira Sheet ("return c return" to continue): ')
+
 
 jira_temp = 'jira_temp.tsv'
 with open(jira_temp, 'w') as js:
     while True:
         sheet_in = input()
+
 
         if sheet_in != 'c':
             js.write(sheet_in + '\n')
@@ -166,8 +159,7 @@ with open(jira_temp, 'r') as jt, open(jira_temp + '_1', 'w') as jt1:
     jira_read = csv.reader(jt, delimiter = '\t')
     temp_writer = csv.writer(jt1, delimiter = '\t')
     data = [r for r in jira_read]
-
-
+    
     dup_found = False
     i = 0
     j = 0
@@ -178,14 +170,14 @@ with open(jira_temp, 'r') as jt, open(jira_temp + '_1', 'w') as jt1:
             data[0][i] = title + '_{}'.format(j)
             j +=1
         i += 1
-
+        
     for rw in data:
         temp_writer.writerow(rw)
-
-
-
+      
 os.rename(jira_temp + '_1', jira_temp)
 
+
+#Update Smartsheet QC Active Issues with new work orders
 
 row_num = len(qc_active_sheet.rows) + 1
 woids = []
@@ -196,15 +188,6 @@ with open(jira_temp, 'r') as jt:
         woids.append(line['Custom field (Work Order ID)'])
     jt.seek(1)
 
-    """
-    Need to write lines to temp file(tsv)
-    parse out woids
-    use woids check written
-    fill out ss row if needed
-    run build status query as usual
-
-    Delete temp at end
-    """
 
     #check ss woids and jira woids
     active_wos = []
@@ -232,6 +215,8 @@ with open(jira_temp, 'r') as jt:
 
                     new_row = smartsheet.smartsheet.models.Row()
 
+
+                    #Jira information
                     new_row.cells.append({'column_id': active_columns_id['Work Order ID'], 'value': int(line['Custom field (Work Order ID)'])})
                     new_row.cells.append({'column_id': active_columns_id['Component/s'],'value': line['Component/s']})
                     new_row.cells.append({'column_id': active_columns_id['Labels'], 'value': line['Labels']})
@@ -249,7 +234,6 @@ with open(jira_temp, 'r') as jt:
                     new_row.cells.append({'column_id': active_columns_id['Build Failed'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 7, false)'.format(row_num)})
                     new_row.cells.append({'column_id': active_columns_id['Build Requested'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 8, false)'.format(row_num)})
                     new_row.cells.append({'column_id': active_columns_id['Unstartable Builds'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 9, false)'.format(row_num)})
-
 
                     #Hyperlinks
                     conf_url = 'https://confluence.ris.wustl.edu/pages/viewpage.action?spaceKey=AD&title=WorkOrder+{}'.format(line['Custom field (Work Order ID)'])
@@ -299,7 +283,6 @@ with open(jira_temp, 'r') as jt:
 
                     up_row.cells.append({'column_id': active_columns_id['Linked JIRA Parent/Dependent Issues'], 'value': ','.join(linked_issues)})
                     smart_sheet_client.Sheets.update_rows(qc_active_sheet.id, [up_row])
-
             jt.seek(1)
 
 
@@ -318,13 +301,14 @@ print('-----------------')
 print('Running Parser...')
 subprocess.run(['python3.5','jiraq_parser.py', 'woids.stats.txt'])
 
+#Get work orders to delete
 wo_delete = {}
 for row in current_sheet.rows:
     for cel in row.cells:
         if cel.column_id == ss_columns_id['Work Order ID']:
             wo_delete[row.id] = True
 
-
+#Update current issues file with new info from jiraq
 with open('issue.status.{}.tsv'.format(mm_dd_yy),'r') as issues_file:
     issues_reader = csv.DictReader(issues_file, delimiter = '\t')
     header = issues_reader.fieldnames
@@ -405,7 +389,6 @@ if len(delete_list) != 0:
     smart_sheet_client.Sheets.delete_rows(current_sheet.id, delete_list)
 print('-----------------')
 
-
 print('Updating Smartsheet...')
 print('-----------------')
 #Add rows
@@ -414,8 +397,9 @@ smart_sheet_client.Sheets.add_rows(current_sheet.id,adding_rows)
 #Update rows
 smart_sheet_client.Sheets.update_rows(current_sheet.id, updating_rows)
 
-
+#Update current issues sheet with today's date
 updated_sheet = smart_sheet_client.Sheets.update_sheet(current_sheet.id,smartsheet.models.Sheet({"name" : 'issues.current.{}'.format(mm_dd_yy)}))
 
+#Delete temp jira sheet file
 os.remove(jira_temp)
-print('debug statment')
+os.chdir(run_from)
