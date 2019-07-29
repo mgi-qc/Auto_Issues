@@ -33,6 +33,10 @@ if API_KEY is None:
 smart_sheet_client = smartsheet.Smartsheet(API_KEY)
 smart_sheet_client.errors_as_exceptions(True)
 
+"""
+Smartsheet tools
+-------------------------
+"""
 def create_folder(new_folder_name, location_id,location_tag):
 
     if location_tag == 'f':
@@ -137,7 +141,9 @@ ss_columns_id = {}
 for col in ss_columns:
     ss_columns_id[col.title] = col.id
 
-
+"""
+Input woids from Jira
+"""
 woids = []
 print('Woids (Enter "return c return" to continue): ')
 while True:
@@ -148,7 +154,7 @@ while True:
     else:
         break
 
-
+#check ss woids and jira woids
 active_wos = []
 for row in qc_active_sheet.rows[7:]:
     resolved = False
@@ -159,7 +165,7 @@ for row in qc_active_sheet.rows[7:]:
     for cell in row.cells:
         if cell.column_id == active_columns_id['Work Order ID'] and not resolved:
             active_wos.append(cell.value)
-        elif str(cell.value).replace('.0','') in woids:
+        elif str(cell.value).replace('.0','') in woids and resolved:
             print('{} found resolved in QC Active Issues.'.format(str(cell.value).replace('.0','')))
 
 for woid in active_wos:
@@ -171,10 +177,12 @@ for woid in woids:
 
 
 
-
+#write woids file for jiraq
 with open('woids','w') as wof:
     for wo in woids:
         wof.write(wo + '\n')
+
+
 print('-----------------')
 print('Running jiraq...')
 subprocess.run(['/bin/bash','jiraq'])
@@ -199,12 +207,20 @@ with open('issue.status.{}.tsv'.format(mm_dd_yy),'r') as issues_file:
     header_check = True
     for head in header:
         if head not in ss_columns_id.keys():
-            print('{} column not found in Smartsheet\nPlease edit the sheet reference in the QC Active Sheet'.format(head))
+            print('{} column not found in Smartsheet\nPlease check the sheet reference in the QC Active Sheet'.format(head))
             new_column = smartsheet.smartsheet.models.Column({'title': head,
-                                                              'type': 'TEXT_NUMBER'})
+                                                              'type': 'TEXT_NUMBER',
+                                                              'index': len(ss_columns_id) - 1})
             #Add column to smartsheet
             smart_sheet_client.Sheets.add_columns(current_sheet.id,[new_column])
             ss_columns = smart_sheet_client.Sheets.get_columns(current_sheet.id, include_all = True).data
+
+            new_column = smartsheet.smartsheet.models.Column({'title': head,
+                                                              'type': 'TEXT_NUMBER',
+                                                              'index': len(qc_active_sheet.columns) - 1})
+
+            col_resp = smart_sheet_client.Sheets.add_columns(qc_active_sheet.id, [new_column]).data
+
 
 
     ss_columns_id = {}
