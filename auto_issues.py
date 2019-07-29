@@ -28,10 +28,8 @@ if API_KEY is None:
 smart_sheet_client = smartsheet.Smartsheet(API_KEY)
 smart_sheet_client.errors_as_exceptions(True)
 
-
 run_from = os.getcwd()
 os.chdir('/gscmnt/gc2783/qc/GMSworkorders')
-
 
 """
 Smartsheet tools
@@ -135,19 +133,51 @@ ss_columns_id = {}
 
 for col in ss_columns:
     ss_columns_id[col.title] = col.id
+    
+#Input sheet from Jira
 
-"""
-Input sheet from Jira
-"""
 jira_sheet = []
 print('Paste Jira Sheet ("return c return" to continue): ')
+
+#Input woids from Jira
+
+woids = []
+print('Woids (Enter "return c return" to continue): ')
+while True:
+    woid_in = input()
+
+    if woid_in != 'c':
+        woids.append(woid_in)
+    else:
+        break
+
+#check ss woids and jira woids
+active_wos = []
+for row in qc_active_sheet.rows[7:]:
+    resolved = False
+    for cell in row.cells:
+        if cell.column_id == active_columns_id['Health'] and cell.value == 'Blue':
+            resolved = True
+
+    for cell in row.cells:
+        if cell.column_id == active_columns_id['Work Order ID'] and not resolved:
+            active_wos.append(cell.value)
+        elif str(cell.value).replace('.0','') in woids and resolved:
+            print('{} found resolved in QC Active Issues.'.format(str(cell.value).replace('.0','')))
+
+for woid in active_wos:
+    active_wos[active_wos.index(woid)] = str(woid).replace('.0','')
+
+for woid in woids:
+    if woid not in active_wos:
+        print('{} found in Jira but not Smartsheet.'.format(woid))
+
 
 
 jira_temp = 'jira_temp.tsv'
 with open(jira_temp, 'w') as js:
     while True:
         sheet_in = input()
-
 
         if sheet_in != 'c':
             js.write(sheet_in + '\n')
@@ -284,7 +314,6 @@ with open(jira_temp, 'r') as jt:
                     up_row.cells.append({'column_id': active_columns_id['Linked JIRA Parent/Dependent Issues'], 'value': ','.join(linked_issues)})
                     smart_sheet_client.Sheets.update_rows(qc_active_sheet.id, [up_row])
             jt.seek(1)
-
 
 #write woids file for jiraq
 with open('woids','w') as wof:
