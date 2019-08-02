@@ -174,11 +174,16 @@ os.rename(jira_temp + '_1', jira_temp)
 #Update Smartsheet QC Active Issues with new work orders
 row_num = len(qc_active_sheet.rows) + 1
 woids = []
+resolved_woids = []
+
 with open(jira_temp, 'r') as jt:
     jira_read = csv.DictReader(jt, delimiter = '\t')
     header = jira_read.fieldnames
     for line in jira_read:
-        woids.append(line['Custom field (Work Order ID)'])
+        try:
+            woids.append(line['Custom field (Work Order ID)'])
+        except ValueError:
+            print('No Work Order ID for {}.'.line['Issue key'])
     jt.seek(1)
 
     #check ss woids and jira woids
@@ -194,12 +199,13 @@ with open(jira_temp, 'r') as jt:
                 active_wos.append(cell.value)
             elif str(cell.value).replace('.0','') in woids and resolved:
                 print('{} found resolved in QC Active Issues.'.format(str(cell.value).replace('.0','')))
+                resolved_woids.append(resolved_woids.append(str(cell.value).replace('.0','')))
 
     for woid in active_wos:
         active_wos[active_wos.index(woid)] = str(woid).replace('.0','')
 
     for woid in woids:
-        if woid not in active_wos:
+        if (woid not in active_wos) and (woid not in resolved_woids):
             print('{} found in Jira but not Smartsheet.'.format(woid))
             print('Adding row to smartsheet...')
             for line in jira_read:
@@ -253,7 +259,6 @@ with open(jira_temp, 'r') as jt:
                     for key in line.keys():
                         if 'Outward issue link (Depends)' in key:
                             linked_issues.append(line[key])
-                            print(linked_issues)
 
                     new_row.cells.append({'column_id': active_columns_id['Linked JIRA Parent/Dependent Issues'], 'value': ','.join(linked_issues)})
                     #add row?
