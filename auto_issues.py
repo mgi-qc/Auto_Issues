@@ -211,11 +211,16 @@ os.rename(jira_temp + '_1', jira_temp)
 
 row_num = len(qc_active_sheet.rows) + 1
 woids = []
+resolved_woids = []
+
 with open(jira_temp, 'r') as jt:
     jira_read = csv.DictReader(jt, delimiter = '\t')
     header = jira_read.fieldnames
     for line in jira_read:
-        woids.append(line['Custom field (Work Order ID)'])
+        try:
+            woids.append(line['Custom field (Work Order ID)'])
+        except ValueError:
+            print('No Work Order ID for {}.'.line['Issue key'])
     jt.seek(1)
 
 
@@ -232,12 +237,13 @@ with open(jira_temp, 'r') as jt:
                 active_wos.append(cell.value)
             elif str(cell.value).replace('.0','') in woids and resolved:
                 print('{} found resolved in QC Active Issues.'.format(str(cell.value).replace('.0','')))
+                resolved_woids.append(resolved_woids.append(str(cell.value).replace('.0','')))
 
     for woid in active_wos:
         active_wos[active_wos.index(woid)] = str(woid).replace('.0','')
 
     for woid in woids:
-        if woid not in active_wos:
+        if (woid not in active_wos) and (woid not in resolved_woids):
             print('{} found in Jira but not Smartsheet.'.format(woid))
             print('Adding row to smartsheet...')
             for line in jira_read:
@@ -245,7 +251,10 @@ with open(jira_temp, 'r') as jt:
 
                     new_row = smartsheet.smartsheet.models.Row()
 
-
+                    #Date run
+                    std_yyyymmdd = datetime.now().strftime('%Y-%m-%d')
+                    new_row.cells.append({'column_id': active_columns_id['Auto Issues Last Updated'], 'value': std_yyyymmdd})
+      
                     #Jira information
                     new_row.cells.append({'column_id': active_columns_id['Work Order ID'], 'value': int(line['Custom field (Work Order ID)'])})
                     new_row.cells.append({'column_id': active_columns_id['Component/s'],'value': line['Component/s']})
@@ -265,8 +274,9 @@ with open(jira_temp, 'r') as jt:
                     new_row.cells.append({'column_id': active_columns_id['Build Requested'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 8, false)'.format(row_num)})
                     new_row.cells.append({'column_id': active_columns_id['Unstartable Builds'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 9, false)'.format(row_num)})
 
+
                     #Hyperlinks
-                    conf_url = 'https://confluence.ris.wustl.edu/pages/viewpage.action?spaceKey=AD&title=WorkOrder+{}'.format(line['Custom field (Work Order ID)'])
+                    conf_url = 'https://confluence.ris.wustl.edu/pages/viewpage.action?spaceKey=AD&title=WorkOrder+{}'.format(str(line['Custom field (Work Order ID)']).replace('.0',''))
                     jira_url = 'https://jira.ris.wustl.edu/browse/{}'.format(line['Issue key'])
 
                     new_row.cells.append({'column_id': active_columns_id['Confluence Page WOID'], 'value': conf_url, 'hyperlink': {'url' : conf_url}})
@@ -281,12 +291,13 @@ with open(jira_temp, 'r') as jt:
                     new_row.cells.append({'column_id': active_columns_id['Weekly Update (PM)'], 'value': ''})
                     new_row.cells.append({'column_id': active_columns_id['Analyst'], 'value': ''})
 
+
+
                     #Linked Issues
                     linked_issues = []
                     for key in line.keys():
                         if 'Outward issue link (Depends)' in key:
                             linked_issues.append(line[key])
-                            print(linked_issues)
 
                     new_row.cells.append({'column_id': active_columns_id['Linked JIRA Parent/Dependent Issues'], 'value': ','.join(linked_issues)})
                     #add row?
@@ -311,7 +322,11 @@ with open(jira_temp, 'r') as jt:
                         if 'Outward issue link (Depends)' in key and line[key] != '':
                             linked_issues.append(line[key])
 
+                    std_yyyymmdd = datetime.now().strftime('%Y-%m-%d')
+
                     up_row.cells.append({'column_id': active_columns_id['Linked JIRA Parent/Dependent Issues'], 'value': ','.join(linked_issues)})
+                    up_row.cells.append({'column_id': active_columns_id['Auto Issues Last Updated'], 'value': std_yyyymmdd})
+
                     smart_sheet_client.Sheets.update_rows(qc_active_sheet.id, [up_row])
             jt.seek(1)
 
@@ -429,6 +444,8 @@ smart_sheet_client.Sheets.update_rows(current_sheet.id, updating_rows)
 #Update current issues sheet with today's date
 updated_sheet = smart_sheet_client.Sheets.update_sheet(current_sheet.id,smartsheet.models.Sheet({"name" : 'issues.current.{}'.format(mm_dd_yy)}))
 
-#Delete temp jira sheet file
+#Delete temp file and move used issues file to issues.archive
 os.remove(jira_temp)
+
+os.rename('issue.status.{}.tsv'.format(mm_dd_yy), 'issues.archive/issue.status.{}.tsv'.format(mm_dd_yy))
 os.chdir(run_from)
