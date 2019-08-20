@@ -24,8 +24,8 @@ if API_KEY is None:
 smart_sheet_client = smartsheet.Smartsheet(API_KEY)
 smart_sheet_client.errors_as_exceptions(True)
 
-# run_from = os.getcwd()
-# os.chdir('/gscmnt/gc2783/qc/GMSworkorders')
+run_from = os.getcwd()
+os.chdir('/gscmnt/gc2783/qc/GMSworkorders')
 
 """
 Smartsheet tools
