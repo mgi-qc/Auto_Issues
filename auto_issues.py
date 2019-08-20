@@ -6,6 +6,8 @@ This script will now be designed to update and add work orders to/in smartsheet 
 
 This script relies on the jiraq bash script and ~awollam/aw/jiraq_parser.py woids.stats.txt
 Meant to be run on personal gsub_alt(uses registry.gsc.wustl.edu/antonacci.t.j/genome_perl_environment:latest)
+
+TODO: Notation and clean up
 """
 
 
@@ -154,12 +156,46 @@ ss_columns_id = {}
 
 for col in ss_columns:
     ss_columns_id[col.title] = col.id
+    
+#Input sheet from Jira
 
-"""
-Input sheet from Jira
-"""
 jira_sheet = []
 print('Paste Jira Sheet ("return c return" to continue): ')
+
+#Input woids from Jira
+
+woids = []
+print('Woids (Enter "return c return" to continue): ')
+while True:
+    woid_in = input()
+
+    if woid_in != 'c':
+        woids.append(woid_in)
+    else:
+        break
+
+#check ss woids and jira woids
+active_wos = []
+for row in qc_active_sheet.rows[7:]:
+    resolved = False
+    for cell in row.cells:
+        if cell.column_id == active_columns_id['Health'] and cell.value == 'Blue':
+            resolved = True
+
+    for cell in row.cells:
+        if cell.column_id == active_columns_id['Work Order ID'] and not resolved:
+            active_wos.append(cell.value)
+        elif str(cell.value).replace('.0','') in woids and resolved:
+            print('{} found resolved in QC Active Issues.'.format(str(cell.value).replace('.0','')))
+
+for woid in active_wos:
+    active_wos[active_wos.index(woid)] = str(woid).replace('.0','')
+
+for woid in woids:
+    if woid not in active_wos:
+        print('{} found in Jira but not Smartsheet.'.format(woid))
+
+
 
 jira_temp = 'jira_temp.tsv'
 with open(jira_temp, 'w') as js:
@@ -187,13 +223,14 @@ with open(jira_temp, 'r') as jt, open(jira_temp + '_1', 'w') as jt1:
             data[0][i] = title + '_{}'.format(j)
             j += 1
         i += 1
-
+        
     for rw in data:
         temp_writer.writerow(rw)
-
+      
 os.rename(jira_temp + '_1', jira_temp)
 
 # Update Smartsheet QC Active Issues with new work orders
+
 row_num = len(qc_active_sheet.rows) + 1
 woids = []
 resolved_woids = []
@@ -209,6 +246,7 @@ with open(jira_temp, 'r') as jt:
     jt.seek(1)
 
     # check ss woids and jira woids
+
     active_wos = []
     for row in qc_active_sheet.rows[7:]:
         resolved = False
@@ -247,6 +285,7 @@ with open(jira_temp, 'r') as jt:
                     start_date = format_date(start_date.split('/')[0], start_date.split('/')[1], start_date.split('/')[2])
 
                     # Jira information
+
                     new_row.cells.append({'column_id': active_columns_id['Work Order ID'], 'value': int(line['Custom field (Work Order ID)'])})
                     new_row.cells.append({'column_id': active_columns_id['Component/s'],'value': line['Component/s']})
                     new_row.cells.append({'column_id': active_columns_id['Labels'], 'value': line['Labels']})
@@ -274,6 +313,7 @@ with open(jira_temp, 'r') as jt:
                     new_row.cells.append({'column_id': active_columns_id['JIRA Issue Link'], 'value': jira_url, 'hyperlink': {'url': jira_url}})
 
                     # Blanks
+
                     new_row.cells.append({'column_id': active_columns_id['QC Queried Date'], 'value': ''})
                     new_row.cells.append({'column_id': active_columns_id['QC Complete?'], 'value': False})
                     new_row.cells.append({'column_id': active_columns_id['internal comment about this issue'], 'value': ''})
@@ -431,5 +471,6 @@ updated_sheet = smart_sheet_client.Sheets.update_sheet(current_sheet.id,smartshe
 
 # Delete temp file and move used issues file to issues.archive
 os.remove(jira_temp)
+
 os.rename('issue.status.{}.tsv'.format(mm_dd_yy), 'issues.archive/issue.status.{}.tsv'.format(mm_dd_yy))
 os.chdir(run_from)
