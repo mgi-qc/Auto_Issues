@@ -240,9 +240,13 @@ with open(jira_temp, 'r') as jt:
     header = jira_read.fieldnames
     for line in jira_read:
         try:
-            woids.append(line['Custom field (Work Order ID)'])
+            if line['Custom field (Work Order ID)'] in woids:
+                print('{} occurs twice in JIRA Sheet')
+            else:
+                woids.append(line['Custom field (Work Order ID)'])
         except ValueError:
             print('No Work Order ID for {}.'.line['Issue key'])
+
     jt.seek(1)
 
     # check ss woids and jira woids
