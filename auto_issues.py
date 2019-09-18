@@ -173,8 +173,8 @@ with open(jira_temp, 'w') as js:
 
 # eliminate dup linked issues column
 with open(jira_temp, 'r') as jt, open(jira_temp + '_1', 'w') as jt1:
-    jira_read = csv.reader(jt, delimiter = '\t')
-    temp_writer = csv.writer(jt1, delimiter = '\t')
+    jira_read = csv.reader(jt, delimiter='\t')
+    temp_writer = csv.writer(jt1, delimiter='\t')
     data = [r for r in jira_read]
 
     dup_found = False
@@ -193,6 +193,7 @@ with open(jira_temp, 'r') as jt, open(jira_temp + '_1', 'w') as jt1:
 
 os.rename(jira_temp + '_1', jira_temp)
 
+print('Checking for new work orders...')
 # Update Smartsheet QC Active Issues with new work orders
 row_num = len(qc_active_sheet.rows) + 1
 woids = []
@@ -206,9 +207,11 @@ with open(jira_temp, 'r') as jt:
             if line['Custom field (Work Order ID)'] in woids:
                 print('{} occurs twice in JIRA Sheet')
             else:
+                if line['Custom field (Work Order ID)'] is None:
+                    raise ValueError
                 woids.append(line['Custom field (Work Order ID)'])
         except ValueError:
-            print('No Work Order ID for {}.'.line['Issue key'])
+            print('No Work Order ID for {}.'.format(line['Issue key']))
 
     jt.seek(1)
 
@@ -223,7 +226,7 @@ with open(jira_temp, 'r') as jt:
         for cell in row.cells:
             if cell.column_id == active_columns_id['Work Order ID'] and not resolved:
                 active_wos.append(cell.value)
-            elif str(cell.value).replace('.0','') in woids and resolved:
+            elif str(cell.value).replace('.0', '') in woids and resolved:
                 print('{} found resolved in QC Active Issues.'.format(str(cell.value).replace('.0', '')))
                 resolved_woids.append(resolved_woids.append(str(cell.value).replace('.0', '')))
 
@@ -252,30 +255,35 @@ with open(jira_temp, 'r') as jt:
 
                     # Jira information
                     new_row.cells.append({'column_id': active_columns_id['Work Order ID'], 'value': int(line['Custom field (Work Order ID)'])})
-                    new_row.cells.append({'column_id': active_columns_id['Component/s'],'value': line['Component/s']})
+                    new_row.cells.append({'column_id': active_columns_id['Component/s'], 'value': line['Component/s']})
                     new_row.cells.append({'column_id': active_columns_id['Labels'], 'value': line['Labels']})
                     new_row.cells.append({'column_id': active_columns_id['Summary'], 'value': line['Summary']})
                     new_row.cells.append({'column_id': active_columns_id['Issue Key'], 'value': line['Issue key']})
                     new_row.cells.append({'column_id': active_columns_id['QC Start Date'], 'value': start_date})
 
                     # formulas
-                    new_row.cells.append({'column_id': active_columns_id['Health'], 'formula': '=IFERROR(IF([QC Complete?]{num} = 1, "Blue", IF([Total Builds]{num} = [Succeeded Builds]{num}, IF([Total Builds]{num} = 0, "Red", "Green"), IF([Build Failed]{num} > 0, "Red", "Yellow"))), "Red")'.format(num=row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Health'],
+                                          'formula': '=IFERROR(IF([QC Complete?]{num} = 1, "Blue", IF([Total Builds]{num} = [Succeeded Builds]{num}, IF([Total Builds]{num} = 0, "Red", "Green"), IF([Build Failed]{num} > 0, "Red", "Yellow"))), "Red")'.format(num=row_num)})
                     new_row.cells.append({'column_id': active_columns_id['Failed Flag'], 'formula': '=IFERROR(IF([Build Failed]{} > 0, 1, 0), 0)'.format(row_num)})
                     new_row.cells.append({'column_id': active_columns_id['Total Builds'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 2, false)'.format(row_num)})
                     new_row.cells.append({'column_id': active_columns_id['Succeeded Builds'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 3, false)'.format(row_num)})
-                    new_row.cells.append({'column_id': active_columns_id['Scheduled'],'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 4, false)'.format(row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Scheduled'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 4, false)'.format(row_num)})
                     new_row.cells.append({'column_id': active_columns_id['Running Builds'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 5, false)'.format(row_num)})
                     new_row.cells.append({'column_id': active_columns_id['Build Needed'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 6, false)'.format(row_num)})
                     new_row.cells.append({'column_id': active_columns_id['Build Failed'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 7, false)'.format(row_num)})
                     new_row.cells.append({'column_id': active_columns_id['Build Requested'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 8, false)'.format(row_num)})
                     new_row.cells.append({'column_id': active_columns_id['Unstartable Builds'], 'formula': '=VLOOKUP($[Work Order ID]{}, {{issue.status.060319-2 Range 2}}, 9, false)'.format(row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['% builds complete'], 'formula': '=IFERROR((IF(Labels{s} = "GMS", [Succeeded Builds]{s} / [Total Builds]{s} * 100, "NA")), 0)'.format(s=row_num)})
+                    new_row.cells.append({'column_id': active_columns_id['Days In QC including weekends'], 'formula': '=TODAY() - [QC Start Date]{}'.format(row_num)})
 
                     # Hyperlinks
-                    conf_url = 'https://confluence.ris.wustl.edu/pages/viewpage.action?spaceKey=AD&title=WorkOrder+{}'.format(str(line['Custom field (Work Order ID)']).replace('.0',''))
+                    conf_url = 'https://confluence.ris.wustl.edu/pages/viewpage.action?spaceKey=AD&title=WorkOrder+{}'.format(str(line['Custom field (Work Order ID)']).replace('.0', ''))
                     jira_url = 'https://jira.ris.wustl.edu/browse/{}'.format(line['Issue key'])
+                    imp_link = 'https://imp-lims.ris.wustl.edu/entity/setup-work-order/{wo}?setup_name={wo}'.format(wo=str(line['Custom field (Work Order ID)']).replace('.0', ''))
 
-                    new_row.cells.append({'column_id': active_columns_id['Confluence Page WOID'], 'value': conf_url, 'hyperlink': {'url' : conf_url}})
+                    new_row.cells.append({'column_id': active_columns_id['Confluence Page WOID'], 'value': conf_url, 'hyperlink': {'url': conf_url}})
                     new_row.cells.append({'column_id': active_columns_id['JIRA Issue Link'], 'value': jira_url, 'hyperlink': {'url': jira_url}})
+                    new_row.cells.append({'column_id': active_columns_id['LIMS IMP link'], 'value': imp_link, 'hyperlink': {'url': imp_link}})
 
                     # Blanks
                     new_row.cells.append({'column_id': active_columns_id['QC Queried Date'], 'value': ''})
@@ -304,7 +312,7 @@ with open(jira_temp, 'r') as jt:
             up_row = smartsheet.smartsheet.models.Row()
 
             for row in qc_active_sheet.rows[7:]:
-                if str(row.get_column(active_columns_id['Work Order ID']).value).replace('.0','') == woid:
+                if str(row.get_column(active_columns_id['Work Order ID']).value).replace('.0', '') == woid:
                     up_row.id = row.id
 
             for line in jira_read:
@@ -324,19 +332,18 @@ with open(jira_temp, 'r') as jt:
     # Send smartsheet request for update and add rows
 
 # write woids file for jiraq
-with open('woids','w') as wof:
+with open('woids', 'w') as wof:
     for wo in woids:
         wof.write(wo + '\n')
 
-
 print('-----------------')
 print('Running jiraq...')
-subprocess.run(['/bin/bash','jiraq'])
+subprocess.run(['/bin/bash', 'jiraq'])
 print('-----------------')
 
 
 print('Running Parser...')
-subprocess.run(['python3.5','jiraq_parser.py', 'woids.stats.txt'])
+subprocess.run(['python3.5', 'jiraq_parser.py', 'woids.stats.txt'])
 
 # Get work orders to delete
 wo_delete = {}
@@ -346,8 +353,8 @@ for row in current_sheet.rows:
             wo_delete[row.id] = True
 
 # Update current issues file with new info from jiraq
-with open('issue.status.{}.tsv'.format(mm_dd_yy),'r') as issues_file:
-    issues_reader = csv.DictReader(issues_file, delimiter = '\t')
+with open('issue.status.{}.tsv'.format(mm_dd_yy), 'r') as issues_file:
+    issues_reader = csv.DictReader(issues_file, delimiter='\t')
     header = issues_reader.fieldnames
 
     # Start of header check
@@ -359,8 +366,8 @@ with open('issue.status.{}.tsv'.format(mm_dd_yy),'r') as issues_file:
                                                               'type': 'TEXT_NUMBER',
                                                               'index': len(ss_columns_id) - 1})
             # Add column to smartsheet
-            smart_sheet_client.Sheets.add_columns(current_sheet.id,[new_column])
-            ss_columns = smart_sheet_client.Sheets.get_columns(current_sheet.id, include_all = True).data
+            smart_sheet_client.Sheets.add_columns(current_sheet.id, [new_column])
+            ss_columns = smart_sheet_client.Sheets.get_columns(current_sheet.id, include_all=True).data
 
             new_column = smartsheet.smartsheet.models.Column({'title': head,
                                                               'type': 'TEXT_NUMBER',
@@ -384,7 +391,7 @@ with open('issue.status.{}.tsv'.format(mm_dd_yy),'r') as issues_file:
                     if cel.display_value == line['Work Order ID']:
                         wo_found = True
                         wo_delete[row.id] = False
-                        id = row.id
+                        rid = row.id
 
         up_ind = len(updating_rows)
         add_ind = len(adding_rows)
@@ -392,7 +399,7 @@ with open('issue.status.{}.tsv'.format(mm_dd_yy),'r') as issues_file:
         if wo_found:
             updating_rows.append(smart_sheet_client.models.Row())
             new_row = updating_rows[up_ind]
-            new_row.id = id
+            new_row.id = rid
 
         else:
             adding_rows.append(smart_sheet_client.models.Row())
@@ -402,14 +409,14 @@ with open('issue.status.{}.tsv'.format(mm_dd_yy),'r') as issues_file:
 
         # update/add row with info from line
         for col in ss_columns_id:
-                ind = len(new_row.cells)
-                new_row.cells.append(smartsheet.models.Cell)
-                new_row.cells[ind].column_id = ss_columns_id[col]
-                if col in line.keys():
-                    new_row.cells[ind].value = line[col]
-                else:
-                    new_row.cells[ind].value = 0
-                new_row.cells[ind].strict = False
+            ind = len(new_row.cells)
+            new_row.cells.append(smartsheet.smartsheet.models.Cell)
+            new_row.cells[ind].column_id = ss_columns_id[col]
+            if col in line.keys():
+                new_row.cells[ind].value = line[col]
+            else:
+                new_row.cells[ind].value = 0
+            new_row.cells[ind].strict = False
 
 # Get row ids for deletion
 delete_list = []
@@ -417,21 +424,23 @@ for key in wo_delete.keys():
     if wo_delete[key]:
         delete_list.append(key)
 
-# Delete Rows
-if len(delete_list) != 0:
-    smart_sheet_client.Sheets.delete_rows(current_sheet.id, delete_list)
 print('-----------------')
-
 print('Updating Smartsheet...')
 print('-----------------')
+
 # Add rows
-smart_sheet_client.Sheets.add_rows(current_sheet.id,adding_rows)
+smart_sheet_client.Sheets.add_rows(current_sheet.id, adding_rows)
 
 # Update rows
 smart_sheet_client.Sheets.update_rows(current_sheet.id, updating_rows)
 
+# Delete Rows
+if len(delete_list) != 0:
+    smart_sheet_client.Sheets.delete_rows(current_sheet.id, delete_list)
+
+
 # Update current issues sheet with today's date
-updated_sheet = smart_sheet_client.Sheets.update_sheet(current_sheet.id,smartsheet.models.Sheet({"name" : 'issues.current.{}'.format(mm_dd_yy)}))
+updated_sheet = smart_sheet_client.Sheets.update_sheet(current_sheet.id, smartsheet.smartsheet.models.Sheet({"name": 'issues.current.{}'.format(mm_dd_yy)}))
 
 # Delete temp file and move used issues file to issues.archive
 os.remove(jira_temp)
